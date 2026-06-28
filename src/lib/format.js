@@ -65,11 +65,28 @@ export function normalizeDialog(d) {
 
 export function normalizeMessage(m) {
   const media = m.media || m.document || m.photo || null;
+
+  // Location can arrive as lat/lng on the message, on media, or as a geo object.
+  const lat = pick(m, ['lat', 'media.lat', 'geo.lat', 'media.geo.lat']);
+  const lng = pick(m, ['lng', 'long', 'media.lng', 'media.long', 'geo.long', 'media.geo.long']);
+  const geo = lat != null && lng != null ? { lat: Number(lat), lng: Number(lng) } : null;
+
+  const isVoice =
+    !!pick(m, ['voice', 'media.voice', 'isVoice']) ||
+    pick(m, ['mediaType', 'media.type']) === 'voice';
+  const isVideoNote =
+    !!pick(m, ['videoNote', 'video_note', 'media.videoNote', 'isVideoNote', 'round']) ||
+    ['video_note', 'videoNote', 'roundVideo'].includes(pick(m, ['mediaType', 'media.type']));
+
   let mediaType = null;
-  if (media) {
+  if (geo) mediaType = 'location';
+  else if (isVoice) mediaType = 'voice';
+  else if (isVideoNote) mediaType = 'videoNote';
+  else if (media) {
     const cn = media.className || '';
-    if (m.photo || cn.includes('Photo') || media.photo) mediaType = 'photo';
-    else if (m.voice || media.voice) mediaType = 'voice';
+    const t = pick(m, ['mediaType', 'media.type']);
+    if (t === 'photo' || m.photo || cn.includes('Photo') || media.photo) mediaType = 'photo';
+    else if (t === 'voice') mediaType = 'voice';
     else if (cn.includes('Document') || media.document || m.document) mediaType = 'document';
     else mediaType = 'media';
   }
@@ -83,6 +100,7 @@ export function normalizeMessage(m) {
     senderName: pick(m, ['senderName', 'sender.firstName', 'postAuthor']),
     replyTo: toNum(pick(m, ['replyTo.replyToMsgId', 'replyToMsgId', 'replyTo'])),
     media: mediaType,
+    geo,
     fileName: pick(media || {}, ['attributes.0.fileName', 'fileName']),
     reactions: pick(m, ['reactions.results', 'reactions'], null),
     pinned: !!pick(m, ['pinned']),

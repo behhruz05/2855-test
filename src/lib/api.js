@@ -70,6 +70,35 @@ async function request(path, { method = 'GET', body, headers = {}, raw } = {}) {
 export const fileUrl = (chatId, messageId) =>
   `${BASE}/api/tg/messages/${encodeURIComponent(chatId)}/${messageId}/file`;
 
+// --- Avatar loading -------------------------------------------------------
+// The avatar endpoint needs the x-tg-session header, so a plain <img src> can't
+// be used. We fetch it as a blob, cache the resulting object URL per chatId,
+// and resolve to null when there is no photo (HTTP 204) or on error.
+const avatarCache = new Map(); // chatId -> Promise<string|null>
+
+export function loadAvatar(chatId, big = false) {
+  const key = `${chatId}:${big ? 'b' : 's'}`;
+  if (avatarCache.has(key)) return avatarCache.get(key);
+
+  const p = (async () => {
+    try {
+      const res = await request(
+        `/api/tg/avatar/${encodeURIComponent(chatId)}${big ? '?big=true' : ''}`,
+        { raw: true }
+      );
+      if (res.status === 204 || !res.ok) return null;
+      const blob = await res.blob();
+      if (!blob || blob.size === 0) return null;
+      return URL.createObjectURL(blob);
+    } catch {
+      return null;
+    }
+  })();
+
+  avatarCache.set(key, p);
+  return p;
+}
+
 export const api = {
   base: BASE,
   health: () => request('/api/health'),
@@ -102,17 +131,23 @@ export const api = {
       method: 'POST',
       body: { text, ...(replyTo ? { replyTo } : {}) },
     }),
-  sendMedia: (chatId, file, { caption, voice, videoNote } = {}) => {
+  sendMedia: (chatId, file, { caption, voice, videoNote, replyTo, filename } = {}) => {
     const fd = new FormData();
-    fd.append('media', file);
+    fd.append('media', file, filename || file.name || 'file');
     if (caption) fd.append('caption', caption);
     if (voice) fd.append('voice', 'true');
     if (videoNote) fd.append('videoNote', 'true');
+    if (replyTo) fd.append('replyTo', String(replyTo));
     return request(`/api/tg/messages/${encodeURIComponent(chatId)}/media`, {
       method: 'POST',
       body: fd,
     });
   },
+  sendLocation: (chatId, lat, lng, replyTo) =>
+    request(`/api/tg/messages/${encodeURIComponent(chatId)}/location`, {
+      method: 'POST',
+      body: { lat, lng, ...(replyTo ? { replyTo } : {}) },
+    }),
   deleteMessages: (chatId, messageIds, revoke = true) =>
     request(`/api/tg/messages/${encodeURIComponent(chatId)}`, {
       method: 'DELETE',

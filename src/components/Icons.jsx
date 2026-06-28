@@ -21,6 +21,11 @@ export const Icon = ({ name, size = 24 }) => {
     logout: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9',
     check: 'M20 6L9 17l-5-5',
     checks: 'M18 7l-8 8-2-2M22 7l-8 8',
+    mic: 'M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8',
+    location:
+      'M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 13a3 3 0 100-6 3 3 0 000 6z',
+    play: 'M5 3l14 9-14 9V3z',
+    stop: 'M6 6h12v12H6z',
   };
   return (
     <svg

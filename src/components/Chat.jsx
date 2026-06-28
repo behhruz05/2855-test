@@ -123,8 +123,12 @@ export default function Chat({ dialog, me, onBack, onSent }) {
     if (!file) return;
     setSending(true);
     try {
-      await api.sendMedia(chatId, file, { caption: text.trim() || undefined });
+      await api.sendMedia(chatId, file, {
+        caption: text.trim() || undefined,
+        replyTo: replyTo?.id,
+      });
       setText('');
+      setReplyTo(null);
       atBottomRef.current = true;
       await load(false);
       onSent?.();
@@ -132,6 +136,101 @@ export default function Chat({ dialog, me, onBack, onSent }) {
       alert('Media yuborilmadi: ' + err.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  const sendLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Brauzer geolokatsiyani qo`llab-quvvatlamaydi');
+      return;
+    }
+    setSending(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await api.sendLocation(
+            chatId,
+            pos.coords.latitude,
+            pos.coords.longitude,
+            replyTo?.id
+          );
+          setReplyTo(null);
+          atBottomRef.current = true;
+          await load(false);
+          onSent?.();
+        } catch (err) {
+          alert('Joylashuv yuborilmadi: ' + err.message);
+        } finally {
+          setSending(false);
+        }
+      },
+      (err) => {
+        setSending(false);
+        alert('Joylashuv olinmadi: ' + err.message);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // --- Voice recording (MediaRecorder) ---
+  const recRef = useRef(null);
+  const chunksRef = useRef([]);
+  const [recording, setRecording] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
+  const recTimerRef = useRef(null);
+  const recCancelRef = useRef(false);
+
+  const startRecording = async () => {
+    if (recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+        ? 'audio/ogg;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : '';
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunksRef.current = [];
+      recCancelRef.current = false;
+      rec.ondataavailable = (ev) => ev.data.size && chunksRef.current.push(ev.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        clearInterval(recTimerRef.current);
+        setRecording(false);
+        setRecSecs(0);
+        if (recCancelRef.current || !chunksRef.current.length) return;
+        const blob = new Blob(chunksRef.current, { type: mime || 'audio/ogg' });
+        setSending(true);
+        try {
+          await api.sendMedia(chatId, blob, {
+            voice: true,
+            filename: 'voice.ogg',
+            replyTo: replyTo?.id,
+          });
+          setReplyTo(null);
+          atBottomRef.current = true;
+          await load(false);
+          onSent?.();
+        } catch (err) {
+          alert('Ovozli xabar yuborilmadi: ' + err.message);
+        } finally {
+          setSending(false);
+        }
+      };
+      recRef.current = rec;
+      rec.start();
+      setRecording(true);
+      setRecSecs(0);
+      recTimerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
+    } catch (err) {
+      alert('Mikrofonga ruxsat yo`q: ' + err.message);
+    }
+  };
+
+  const stopRecording = (cancel) => {
+    recCancelRef.current = !!cancel;
+    if (recRef.current && recRef.current.state !== 'inactive') {
+      recRef.current.stop();
     }
   };
 
@@ -250,32 +349,79 @@ export default function Chat({ dialog, me, onBack, onSent }) {
           hidden
           onChange={onPickFile}
         />
-        <div className="composer-box">
-          <button
-            className="icon-btn"
-            style={{ marginRight: 4 }}
-            onClick={() => fileRef.current?.click()}
-            title="Biriktirish"
-          >
-            <Icon name="attach" />
+        {recording ? (
+          <div className="composer-box" style={{ alignItems: 'center' }}>
+            <button
+              className="icon-btn"
+              style={{ color: '#f15c5c' }}
+              onClick={() => stopRecording(true)}
+              title="Bekor qilish"
+            >
+              <Icon name="trash" />
+            </button>
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                color: '#f15c5c',
+                fontSize: 15,
+                padding: '8px 4px',
+              }}
+            >
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#f15c5c', display: 'inline-block' }} />
+              {String(Math.floor(recSecs / 60)).padStart(2, '0')}:
+              {String(recSecs % 60).padStart(2, '0')}
+              <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>yuborish uchun ▶</span>
+            </div>
+          </div>
+        ) : (
+          <div className="composer-box">
+            <button
+              className="icon-btn"
+              style={{ marginRight: 4 }}
+              onClick={() => fileRef.current?.click()}
+              title="Biriktirish"
+            >
+              <Icon name="attach" />
+            </button>
+            <textarea
+              ref={taRef}
+              rows={1}
+              placeholder="Message"
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                sendTyping();
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+              }}
+              onKeyDown={onKeyDown}
+            />
+            <button
+              className="icon-btn"
+              style={{ marginLeft: 4 }}
+              onClick={sendLocation}
+              title="Joylashuv yuborish"
+            >
+              <Icon name="location" />
+            </button>
+          </div>
+        )}
+        {recording ? (
+          <button className="send-btn" onClick={() => stopRecording(false)} title="Yuborish">
+            <Icon name="send" />
           </button>
-          <textarea
-            ref={taRef}
-            rows={1}
-            placeholder="Message"
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              sendTyping();
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
-            }}
-            onKeyDown={onKeyDown}
-          />
-        </div>
-        <button className="send-btn" onClick={handleSend} disabled={sending}>
-          {sending ? <div className="spinner" /> : <Icon name="send" />}
-        </button>
+        ) : text.trim() ? (
+          <button className="send-btn" onClick={handleSend} disabled={sending}>
+            {sending ? <div className="spinner" /> : <Icon name="send" />}
+          </button>
+        ) : (
+          <button className="send-btn" onClick={startRecording} disabled={sending} title="Ovozli xabar">
+            {sending ? <div className="spinner" /> : <Icon name="mic" />}
+          </button>
+        )}
       </div>
 
       {menu && (
@@ -323,7 +469,42 @@ function Bubble({ m, chatId, grouped, showSender, onContext }) {
             onError={(e) => (e.target.style.display = 'none')}
           />
         )}
-        {(m.media === 'document' || m.media === 'media' || m.media === 'voice') && (
+        {m.media === 'voice' && (
+          <audio
+            className="msg-voice"
+            controls
+            preload="none"
+            src={fileUrl(chatId, m.id)}
+          />
+        )}
+        {m.media === 'videoNote' && (
+          <video
+            className="msg-video-note"
+            controls
+            preload="metadata"
+            src={fileUrl(chatId, m.id)}
+          />
+        )}
+        {m.media === 'location' && m.geo && (
+          <a
+            className="msg-location"
+            href={`https://www.google.com/maps?q=${m.geo.lat},${m.geo.lng}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <img
+              className="msg-map"
+              alt="Joylashuv"
+              loading="lazy"
+              src={`https://staticmap.openstreetmap.de/staticmap.php?center=${m.geo.lat},${m.geo.lng}&zoom=15&size=300x150&markers=${m.geo.lat},${m.geo.lng},red-pushpin`}
+              onError={(e) => (e.target.style.display = 'none')}
+            />
+            <span className="msg-loc-label">
+              <Icon name="location" size={16} /> {m.geo.lat.toFixed(5)}, {m.geo.lng.toFixed(5)}
+            </span>
+          </a>
+        )}
+        {(m.media === 'document' || m.media === 'media') && (
           <a
             className="msg-doc"
             href={fileUrl(chatId, m.id)}
@@ -333,7 +514,7 @@ function Bubble({ m, chatId, grouped, showSender, onContext }) {
           >
             <span className="doc-ico"><Icon name="doc" size={20} /></span>
             <div>
-              <div style={{ fontWeight: 500 }}>{m.fileName || (m.media === 'voice' ? 'Ovozli xabar' : 'Fayl')}</div>
+              <div style={{ fontWeight: 500 }}>{m.fileName || 'Fayl'}</div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Yuklab olish</div>
             </div>
           </a>

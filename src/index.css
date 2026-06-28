@@ -351,6 +351,41 @@ textarea {
   display: block;
   cursor: pointer;
 }
+.msg-voice {
+  height: 40px;
+  min-width: 240px;
+  display: block;
+}
+.msg-video-note {
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+.msg-location {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.msg-map {
+  width: 300px;
+  max-width: 100%;
+  height: 150px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+  background: #223040;
+}
+.msg-loc-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--accent);
+  margin-top: 4px;
+}
 .msg-doc {
   display: flex;
   align-items: center;
