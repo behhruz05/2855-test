@@ -26,6 +26,8 @@ export const Icon = ({ name, size = 24 }) => {
       'M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 13a3 3 0 100-6 3 3 0 000 6z',
     play: 'M5 3l14 9-14 9V3z',
     stop: 'M6 6h12v12H6z',
+    camera:
+      'M23 7l-7 5 7 5V7zM14 5H3a2 2 0 00-2 2v10a2 2 0 002 2h11a2 2 0 002-2V7a2 2 0 00-2-2z',
   };
   return (
     <svg

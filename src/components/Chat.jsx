@@ -234,6 +234,97 @@ export default function Chat({ dialog, me, onBack, onSent }) {
     }
   };
 
+  // --- Round video note recording ---
+  const [recordingVideo, setRecordingVideo] = useState(false);
+  const [vidSecs, setVidSecs] = useState(0);
+  const vrecRef = useRef(null);
+  const vchunksRef = useRef([]);
+  const vstreamRef = useRef(null);
+  const vTimerRef = useRef(null);
+  const vCancelRef = useRef(false);
+  const previewRef = useRef(null);
+  const MAX_NOTE_SECS = 60; // Telegram limiti — backend ham cheklaydi
+
+  const startVideoNote = async () => {
+    if (recordingVideo) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 480, height: 480, facingMode: 'user' },
+        audio: true,
+      });
+      vstreamRef.current = stream;
+      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+        ? 'video/webm;codecs=vp8,opus'
+        : MediaRecorder.isTypeSupported('video/webm')
+        ? 'video/webm'
+        : '';
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      vchunksRef.current = [];
+      vCancelRef.current = false;
+      rec.ondataavailable = (ev) => ev.data.size && vchunksRef.current.push(ev.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        vstreamRef.current = null;
+        clearInterval(vTimerRef.current);
+        setRecordingVideo(false);
+        setVidSecs(0);
+        if (vCancelRef.current || !vchunksRef.current.length) return;
+        const blob = new Blob(vchunksRef.current, { type: mime || 'video/webm' });
+        setSending(true);
+        try {
+          // Backend ffmpeg bilan kvadrat mp4'ga o'zi o'tkazadi — webm yuborsak ham bo'ladi.
+          await api.sendMedia(chatId, blob, {
+            videoNote: true,
+            filename: 'note.webm',
+            replyTo: replyTo?.id,
+          });
+          setReplyTo(null);
+          atBottomRef.current = true;
+          await load(false);
+          onSent?.();
+        } catch (err) {
+          alert('Video xabar yuborilmadi: ' + err.message);
+        } finally {
+          setSending(false);
+        }
+      };
+      vrecRef.current = rec;
+      rec.start();
+      setRecordingVideo(true);
+      setVidSecs(0);
+      if (previewRef.current) {
+        previewRef.current.srcObject = stream;
+        previewRef.current.play?.().catch(() => {});
+      }
+      vTimerRef.current = setInterval(
+        () =>
+          setVidSecs((s) => {
+            if (s + 1 >= MAX_NOTE_SECS) stopVideoNote(false);
+            return s + 1;
+          }),
+        1000
+      );
+    } catch (err) {
+      alert('Kameraga ruxsat yo`q: ' + err.message);
+    }
+  };
+
+  const stopVideoNote = (cancel) => {
+    vCancelRef.current = !!cancel;
+    if (vrecRef.current && vrecRef.current.state !== 'inactive') {
+      vrecRef.current.stop();
+    }
+  };
+
+  // Chatdan chiqilganda yozishni to'xtatib, oqimni tozalash
+  useEffect(() => {
+    return () => {
+      clearInterval(recTimerRef.current);
+      clearInterval(vTimerRef.current);
+      vstreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, [chatId]);
+
   const openMenu = (e, msg) => {
     e.preventDefault();
     setMenu({ x: e.clientX, y: e.clientY, msg });
@@ -407,9 +498,20 @@ export default function Chat({ dialog, me, onBack, onSent }) {
             >
               <Icon name="location" />
             </button>
+            <button
+              className="icon-btn"
+              onClick={startVideoNote}
+              title="Dumaloq video xabar"
+            >
+              <Icon name="camera" />
+            </button>
           </div>
         )}
-        {recording ? (
+        {recordingVideo ? (
+          <button className="send-btn" onClick={() => stopVideoNote(false)} title="Yuborish">
+            <Icon name="send" />
+          </button>
+        ) : recording ? (
           <button className="send-btn" onClick={() => stopRecording(false)} title="Yuborish">
             <Icon name="send" />
           </button>
@@ -423,6 +525,27 @@ export default function Chat({ dialog, me, onBack, onSent }) {
           </button>
         )}
       </div>
+
+      {recordingVideo && (
+        <div className="vrec-overlay">
+          <div className="vrec-circle">
+            <video ref={previewRef} muted playsInline autoPlay />
+          </div>
+          <div className="vrec-timer">
+            <span className="vrec-dot" />
+            {String(Math.floor(vidSecs / 60)).padStart(2, '0')}:
+            {String(vidSecs % 60).padStart(2, '0')}
+          </div>
+          <div className="vrec-actions">
+            <button className="icon-btn" style={{ color: '#f15c5c' }} onClick={() => stopVideoNote(true)}>
+              <Icon name="trash" /> Bekor
+            </button>
+            <button className="icon-btn" style={{ color: 'var(--accent)' }} onClick={() => stopVideoNote(false)}>
+              <Icon name="send" /> Yuborish
+            </button>
+          </div>
+        </div>
+      )}
 
       {menu && (
         <div
